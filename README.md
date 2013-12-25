@@ -1,7 +1,7 @@
 # comp-runner
 
-A Clojure library designed to ... well, that part is up to you.
+Simple implementation of computational models described in [Victor Malyshkin](http://ssd.sscc.ru/en/users/malyshkin)'s papers
 
 ## Usage
 
-FIXME
+See core tests
