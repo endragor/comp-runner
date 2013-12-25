@@ -144,7 +144,7 @@
         fn-inputs-count (calculate-ready-inputs model input-keys)
         graph (:graph model)
         required-output-node (var-node-by-key model required-output)
-        non-full-fn-inputs (filter #(< (fn-inputs-count %) (count (inputs model %))) fns)        
+        non-full-fn-inputs (set (filter #(< (fn-inputs-count %) (count (inputs model %))) fns))
         filtered-graph (graph/filter-bfs #(or (and (not (func-node? %))
                                                    (graph/contains-path? graph % required-output-node)) 
                                               (and (func-node? %)
@@ -159,9 +159,34 @@
         clean-graph (graph/filter-bfs 
                        #(or (not (func-node? %))
                             (= (count (graph/input-nodes graph-reachable %)) (count (graph/input-nodes graph %))))
-                       graph-reachable)
-        weighted-graph (recalculate-weights clean-graph (:key-to-node model) input-keys)]    
-    (make-model-from-graph weighted-graph)))
+                       graph-reachable)]   
+    (make-model-from-graph clean-graph)))
+
+(defn make-calculation-graph [graph key-to-node-map input-keys required-output]
+  (let [weighted-graph (recalculate-weights graph key-to-node-map input-keys)]
+    (loop [g (graph/make-graph) to-visit #{(key-to-node-map required-output)}]
+      (if (empty? to-visit)
+        g
+        (let [node (first to-visit)
+              new-to-visit (disj to-visit node)
+              inputs (graph/input-nodes weighted-graph node)]
+          
+          (if (or (contains? input-keys (node-value node)) (when (empty? inputs) (throw (IllegalArgumentException. (str "no inputs for " node)))))
+            (recur g new-to-visit)
+            (if (func-node? node)
+              (recur (reduce (fn [g input] (graph/add-edge g input node)) g inputs) (apply conj new-to-visit inputs))
+              (let [min-weight-func (reduce 
+                                      (fn [min-func-node func-node]
+                                        (let [min-func-weight (graph/node-attr weighted-graph min-func-node :weight)
+                                              func-node-weight (graph/node-attr weighted-graph func-node :weight)]
+                                          (if (< func-node-weight min-func-weight)
+                                            func-node
+                                            min-func-node)))
+                                      inputs)]
+                (recur (graph/add-edge g min-weight-func node) (conj new-to-visit min-weight-func))))))))))
+
+(defn make-calculation-model [clean-model input-keys required-output]
+  (make-model-from-graph (make-calculation-graph (:graph clean-model) (:key-to-node clean-model) input-keys required-output)))
 
 
 

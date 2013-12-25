@@ -32,6 +32,10 @@
         (assoc-in [:outputs node] #{})
         (assoc-in [:inputs node] #{}))))
 
+(defn add-nodes [graph nodes]
+  (reduce 
+    (fn [g node] (add-node g node) graph nodes)))
+
 (defn add-node-attr [graph node k v]
   (assoc-in graph [:attrs node k] v))
 

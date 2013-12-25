@@ -83,4 +83,4 @@
   (let [clean-model (model/clean model input-map output)]
     (when (empty? (model/func-nodes clean-model))       
       (throw (IllegalArgumentException. "Not enough data to calculate the output")))
-    (do-compute clean-model output input-map)))
+    (do-compute (model/make-calculation-model clean-model (set (keys input-map)) output) output input-map)))
