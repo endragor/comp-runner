@@ -1,5 +1,6 @@
 (ns comp-runner.comp-model
-  (:require [comp-runner.graph :as graph]))
+  (:require [comp-runner.graph :as graph])
+  (:require [clojure.set :as set]))
 
 (defrecord CompModel [graph key-to-node]
   Object
@@ -102,6 +103,38 @@
     #(graph/contains-path? graph % required-output)
     graph))
 
+(defn- calculate-node-weight [g node cur-node-weight outputs]
+  (if (func-node? node)
+    (let [out-v (first outputs)
+          out-v-weight (graph/node-attr g out-v :weight)]
+      (if (nil? out-v-weight)
+        (graph/add-node-attr g out-v :weight cur-node-weight)
+        (graph/add-node-attr g out-v :weight (min cur-node-weight out-v-weight))))
+    (reduce
+      (fn [g output]
+        (graph/add-node-attr g output :weight (+ (node-weight output) cur-node-weight)))
+      g
+      outputs)))
+
+(defn recalculate-weights [graph key-to-node input-keys]
+  (let [[q g] (reduce 
+	            (fn [[q g] input-key]
+	              (let [input-node (key-to-node input-key)]
+		            [(conj q input-node) (graph/add-node-attr g input-node :weight 0)]))
+		          [(clojure.lang.PersistentQueue/EMPTY) graph]
+		          input-keys)]
+    (loop [q q g g visited (set q)]
+      (if (empty? q)
+        g
+        (let [node (first q)
+              cur-node-weight (graph/node-attr g node :weight)
+              outputs (graph/output-nodes g node)
+              to-visit (set/difference outputs visited)
+              next-q (if (empty? to-visit) (pop q) (apply conj (pop q) to-visit))
+              next-visited (set/union visited outputs)
+              next-g (calculate-node-weight g node cur-node-weight outputs)]
+          (recur next-q next-g next-visited))))))
+
 (defn clean
   "Constructs new model which contains only variables and functions which can lead to calculation of
   required output from specified inputs"
@@ -111,7 +144,7 @@
         fn-inputs-count (calculate-ready-inputs model input-keys)
         graph (:graph model)
         required-output-node (var-node-by-key model required-output)
-        non-full-fn-inputs (filter #(< (fn-inputs-count %) (count (inputs model %))) fns)
+        non-full-fn-inputs (filter #(< (fn-inputs-count %) (count (inputs model %))) fns)        
         filtered-graph (graph/filter-bfs #(or (and (not (func-node? %))
                                                    (graph/contains-path? graph % required-output-node)) 
                                               (and (func-node? %)
@@ -120,14 +153,15 @@
                                                    (not (contains? input-keys (output model %)))
                                                    (graph/contains-path? graph % required-output-node)))
                                          graph)
-        graph-reachable (graph/remove-unreachable-nodes 
-                          (remove-bad-paths filtered-graph required-output-node)
-                          (map #(var-node-by-key model %) input-keys))
-        result-graph (graph/filter-bfs 
+        graph-reachable (-> filtered-graph
+                            (remove-bad-paths required-output-node)
+                            (graph/remove-unreachable-nodes (map #(var-node-by-key model %) input-keys)))
+        clean-graph (graph/filter-bfs 
                        #(or (not (func-node? %))
                             (= (count (graph/input-nodes graph-reachable %)) (count (graph/input-nodes graph %))))
-                       graph-reachable)]    
-    (make-model-from-graph result-graph)))
+                       graph-reachable)
+        weighted-graph (recalculate-weights clean-graph (:key-to-node model) input-keys)]    
+    (make-model-from-graph weighted-graph)))
 
 
 

@@ -5,7 +5,7 @@
 
 (declare reduce-bfs input-nodes)
 
-(defrecord OrGraph [inputs outputs]
+(defrecord OrGraph [inputs outputs attrs]
   Object
   (toString [graph] (string/join
                   "\n"
@@ -16,23 +16,38 @@
                           (conj acc (str (string/join ", " inputs) " -> " node))
                           acc)))
                     []
-                    graph))))
+                    graph)))
+  )
 
 (defn make-graph []
   "Creates empty oriented graph."
-  (OrGraph. {} {}))
+  (OrGraph. {} {} {}))
 
 (defn add-node [graph node]
   "Returns graph which is the copy of specified graph plus the node.
   Returns the same graph if it already contains the node."
   (if (contains? (:outputs graph) node)
     graph
-    (assoc-in (assoc-in graph [:outputs node] #{}) [:inputs node] #{})))
+    (-> graph
+        (assoc-in [:outputs node] #{})
+        (assoc-in [:inputs node] #{}))))
+
+(defn add-node-attr [graph node k v]
+  (assoc-in graph [:attrs node k] v))
+
+(defn node-attr 
+  ([graph node k]
+   (node-attr graph node k nil))
+  ([graph node k default]
+   (get-in graph [:attrs node k] default)))
 
 (defn add-edge [graph from to]
   "Returns new graph which is the specified graph with new edge"
-  (let [graph-with-nodes (add-node (add-node graph from) to)]
-    (update-in (update-in graph-with-nodes [:outputs from] conj to) [:inputs to] conj from)))
+  (-> graph
+      (add-node from)
+      (add-node to)
+      (update-in [:inputs to] conj from)
+      (update-in [:outputs from] conj to)))
 
 (defn input-nodes 
   "Returns set of nodes which have output edge into specified node"
@@ -80,20 +95,24 @@
 (defn remove-node
   "Returns new graph which is the same as provided but without specified node and all adjacent edges"
   [graph node]
-  (let [new-graph (dissoc-in (dissoc-in graph [:outputs node]) [:inputs node])]
+  (let [new-graph (-> graph
+                    (dissoc-in [:inputs node])
+                    (dissoc-in [:outputs node])
+                    (dissoc-in [:attrs node]))]
     (reduce 
       (fn [cur-graph cur-node]
-        (update-in (update-in cur-graph [:outputs cur-node] disj node) [:inputs cur-node] disj node))
+        (-> cur-graph
+            (update-in [:outputs cur-node] disj node)
+            (update-in [:inputs cur-node] disj node)))
       new-graph
       (nodes new-graph))))
 
 (defn remove-edge
   "Returns new graph which is the same as provided but without specified edge"
   [graph from to]
-  (if (not (contains-edge? graph from to))
-    graph
-    (update-in (update-in graph [:outputs from] disj to) [:inputs to] disj from)))
-  
+  (-> graph 
+      (update-in [:outputs from] disj to)
+      (update-in [:inputs to] disj from)))
 
 (defn reduce-bfs
   "Performs traversal over the graph,
